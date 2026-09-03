@@ -1,0 +1,81 @@
+# Celery Worker Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: superset-worker
+  namespace: superset
+  labels:
+    app: superset-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: superset-worker
+  template:
+    metadata:
+      labels:
+        app: superset-worker
+    spec:
+      containers:
+        - name: superset-worker
+          image: apache/superset:6.1.0
+          command: ["superset", "celery", "worker"]
+          env:
+            - name: SUPERSET_CONFIG_PATH
+              value: /app/superset_config.py
+            - name: DATABASE_HOST
+              value: superset-postgres
+            - name: DATABASE_PORT
+              value: "5432"
+            - name: DATABASE_USER
+              value: superset
+            - name: DATABASE_NAME
+              value: superset
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: superset-secrets
+                  key: postgres-password
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: superset-secrets
+                  key: secret-key
+            - name: CACHE_REDIS_HOST
+              value: superset-redis
+            - name: CACHE_REDIS_PORT
+              value: "6379"
+            - name: CACHE_REDIS_DB
+              value: "0"
+            - name: BROKER_REDIS_HOST
+              value: superset-redis
+            - name: BROKER_REDIS_PORT
+              value: "6379"
+            - name: BROKER_REDIS_DB
+              value: "1"
+            - name: RESULT_BACKEND_REDIS_HOST
+              value: superset-redis
+            - name: RESULT_BACKEND_REDIS_PORT
+              value: "6379"
+            - name: RESULT_BACKEND_REDIS_DB
+              value: "2"
+          volumeMounts:
+            - name: config
+              mountPath: /app/superset_config.py
+              subPath: superset_config.py
+            - name: superset-home
+              mountPath: /app/superset_home
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: config
+          configMap:
+            name: superset-config
+        - name: superset-home
+          persistentVolumeClaim:
+            claimName: superset-home-pvc

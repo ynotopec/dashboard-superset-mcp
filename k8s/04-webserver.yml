@@ -1,0 +1,144 @@
+# Superset Web Server Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: superset-webserver
+  namespace: superset
+  labels:
+    app: superset-webserver
+    component: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: superset-webserver
+  template:
+    metadata:
+      labels:
+        app: superset-webserver
+        component: web
+    spec:
+      containers:
+        - name: superset-webserver
+          image: apache/superset:6.1.0
+          ports:
+            - containerPort: 8088
+          env:
+            - name: SUPERSET_CONFIG_PATH
+              value: /app/superset_config.py
+            - name: DATABASE_HOST
+              value: superset-postgres
+            - name: DATABASE_PORT
+              value: "5432"
+            - name: DATABASE_USER
+              value: superset
+            - name: DATABASE_NAME
+              value: superset
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: superset-secrets
+                  key: postgres-password
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: superset-secrets
+                  key: secret-key
+            - name: CACHE_REDIS_HOST
+              value: superset-redis
+            - name: CACHE_REDIS_PORT
+              value: "6379"
+            - name: CACHE_REDIS_DB
+              value: "0"
+            - name: BROKER_REDIS_HOST
+              value: superset-redis
+            - name: BROKER_REDIS_PORT
+              value: "6379"
+            - name: BROKER_REDIS_DB
+              value: "1"
+            - name: RESULT_BACKEND_REDIS_HOST
+              value: superset-redis
+            - name: RESULT_BACKEND_REDIS_PORT
+              value: "6379"
+            - name: RESULT_BACKEND_REDIS_DB
+              value: "2"
+            - name: MCP_AUTH_ENABLED
+              value: "false"
+            - name: MCP_DEV_USERNAME
+              value: admin
+          volumeMounts:
+            - name: config
+              mountPath: /app/superset_config.py
+              subPath: superset_config.py
+            - name: superset-home
+              mountPath: /app/superset_home
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8088
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8088
+            initialDelaySeconds: 60
+            periodSeconds: 30
+      volumes:
+        - name: config
+          configMap:
+            name: superset-config
+        - name: superset-home
+          persistentVolumeClaim:
+            claimName: superset-home-pvc
+---
+# Superset Web Server Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: superset-webserver
+  namespace: superset
+  labels:
+    app: superset-webserver
+spec:
+  selector:
+    app: superset-webserver
+  ports:
+    - port: 8088
+      targetPort: 8088
+      name: http
+  type: ClusterIP
+---
+# Ingress (optionnel - avec TLS via cert-manager)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: superset-webserver
+  namespace: superset
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    kubernetes.io/ingress.class: public
+spec:
+  ingressClassName: public
+  tls:
+    - hosts:
+        - superset.demo1.ailab.infocepo.com
+      secretName: superset-tls
+  rules:
+    - host: superset.demo1.ailab.infocepo.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: superset-webserver
+                port:
+                  number: 8088

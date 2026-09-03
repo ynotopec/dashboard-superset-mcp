@@ -1,0 +1,116 @@
+# MCP Server Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: superset-mcp
+  namespace: superset
+  labels:
+    app: superset-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: superset-mcp
+  template:
+    metadata:
+      labels:
+        app: superset-mcp
+    spec:
+      containers:
+        - name: superset-mcp
+          image: apache/superset:6.1.0
+          command: ["superset", "mcp", "run", "--host", "0.0.0.0", "--port", "5008"]
+          ports:
+            - containerPort: 5008
+          env:
+            - name: SUPERSET_CONFIG_PATH
+              value: /app/superset_config.py
+            - name: DATABASE_HOST
+              value: superset-postgres
+            - name: DATABASE_PORT
+              value: "5432"
+            - name: DATABASE_USER
+              value: superset
+            - name: DATABASE_NAME
+              value: superset
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: superset-secrets
+                  key: postgres-password
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: superset-secrets
+                  key: secret-key
+            - name: CACHE_REDIS_HOST
+              value: superset-redis
+            - name: CACHE_REDIS_PORT
+              value: "6379"
+            - name: CACHE_REDIS_DB
+              value: "0"
+            - name: BROKER_REDIS_HOST
+              value: superset-redis
+            - name: BROKER_REDIS_PORT
+              value: "6379"
+            - name: BROKER_REDIS_DB
+              value: "1"
+            - name: RESULT_BACKEND_REDIS_HOST
+              value: superset-redis
+            - name: RESULT_BACKEND_REDIS_PORT
+              value: "6379"
+            - name: RESULT_BACKEND_REDIS_DB
+              value: "2"
+            - name: MCP_AUTH_ENABLED
+              value: "false"
+            - name: MCP_DEV_USERNAME
+              value: admin
+          volumeMounts:
+            - name: config
+              mountPath: /app/superset_config.py
+              subPath: superset_config.py
+            - name: superset-home
+              mountPath: /app/superset_home
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /mcp
+              port: 5008
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /mcp
+              port: 5008
+            initialDelaySeconds: 60
+            periodSeconds: 30
+      volumes:
+        - name: config
+          configMap:
+            name: superset-config
+        - name: superset-home
+          persistentVolumeClaim:
+            claimName: superset-home-pvc
+---
+# MCP Server Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: superset-mcp
+  namespace: superset
+  labels:
+    app: superset-mcp
+spec:
+  selector:
+    app: superset-mcp
+  ports:
+    - port: 5008
+      targetPort: 5008
+      name: mcp
+  type: ClusterIP

@@ -1,0 +1,106 @@
+# ConfigMap pour superset_config.py
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: superset-config
+  namespace: superset
+data:
+  superset_config.py: |
+    import os
+
+    SECRET_KEY = os.getenv("SECRET_KEY")
+    SQLALCHEMY_DATABASE_URI = (
+        f"postgresql+psycopg2://"
+        f"{os.getenv('DATABASE_USER', 'superset')}:"
+        f"{os.getenv('DATABASE_PASSWORD', '')}@"
+        f"{os.getenv('DATABASE_HOST', 'superset-postgres')}:"
+        f"{os.getenv('DATABASE_PORT', '5432')}/"
+        f"{os.getenv('DATABASE_NAME', 'superset')}"
+    )
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    # Cache Redis
+    CACHE_CONFIG = {
+        "CACHE_TYPE": "RedisCache",
+        "CACHE_REDIS_HOST": os.getenv("CACHE_REDIS_HOST", "superset-redis"),
+        "CACHE_REDIS_PORT": int(os.getenv("CACHE_REDIS_PORT", "6379")),
+        "CACHE_REDIS_DB": os.getenv("CACHE_REDIS_DB", "0"),
+    }
+    DATA_CACHE_CONFIG = CACHE_CONFIG
+
+    # Celery
+    CELERY_CONFIG = {
+        "broker_url": f"redis://{os.getenv('BROKER_REDIS_HOST', 'superset-redis')}:"
+                      f"{os.getenv('BROKER_REDIS_PORT', '6379')}/"
+                      f"{os.getenv('BROKER_REDIS_DB', '1')}",
+        "result_backend": f"redis://{os.getenv('RESULT_BACKEND_REDIS_HOST', 'superset-redis')}:"
+                          f"{os.getenv('RESULT_BACKEND_REDIS_PORT', '6379')}/"
+                          f"{os.getenv('RESULT_BACKEND_REDIS_DB', '2')}",
+    }
+
+    # MCP
+    MCP_AUTH_ENABLED = False
+    MCP_DEV_USERNAME = "admin"
+
+    SUPERSET_CELERY_WORKERS_CONFIG = CELERY_CONFIG
+
+# PersistentVolumeClaim pour le home Superset
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: superset-home-pvc
+  namespace: superset
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+# Init Job (exécuté une fois)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: superset-init
+  namespace: superset
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  template:
+    spec:
+      containers:
+        - name: init
+          image: apache/superset:6.1.0
+          command: ["bash", "-c", "superset db upgrade && superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password changeme && superset init"]
+          env:
+            - name: DATABASE_HOST
+              value: superset-postgres
+            - name: DATABASE_PORT
+              value: "5432"
+            - name: DATABASE_USER
+              value: superset
+            - name: DATABASE_NAME
+              value: superset
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: superset-secrets
+                  key: postgres-password
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: superset-secrets
+                  key: secret-key
+            - name: SUPERSET_CONFIG_PATH
+              value: /app/superset_config.py
+          volumeMounts:
+            - name: config
+              mountPath: /app/superset_config.py
+              subPath: superset_config.py
+      restartPolicy: Never
+      volumes:
+        - name: config
+          configMap:
+            name: superset-config
+  backoffLimit: 3
