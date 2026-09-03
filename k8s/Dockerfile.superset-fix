@@ -1,0 +1,15 @@
+# Superset 6.1.0 — Fix psycopg2 missing in official image
+# Usage: docker build -f Dockerfile.superset-fix -t superset:6.1.0-fix .
+FROM apache/superset:6.1.0
+
+USER root
+
+# Install psycopg2 system dependencies (debian bookworm)
+RUN apt-get update && apt-get install -y \
+      libpq-dev gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install psycopg2-binary
+RUN pip install --no-cache-dir psycopg2-binary
+
+USER superset

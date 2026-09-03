@@ -79,19 +79,54 @@ python -m dashboard_superset_mcp create-dashboard \
     --charts my_chart_1 my_chart_2
 ```
 
-## Déploiement Superset
+## Déploiement Kubernetes
 
 ```bash
-# Superset 6.1.0+ avec MCP natif
-docker run -d \
-  --name superset \
-  -e SUPERSET_CONFIG_PATH=/app/superset_config.py \
-  -p 8088:8088 \
-  -p 5008:5008 \
-  apache/superset:6.1.0
+# 1. Copier et éditer la config
+cp config/.env.example config/.env
+# Éditer .env : passwords, namespace, domain
 
-# MCP serveur (processus séparé)
-superset mcp run --host 0.0.0.0 --port 5008
+# 2. Déployer en une commande
+chmod +x scripts/deploy.sh
+./scripts/deploy.sh [namespace] [version]
+
+# Exemple : ./scripts/deploy.sh demo1 6.1.0
+
+# 3. Vérifier
+kubectl get pods -n demo1
+kubectl port-forward svc/superset-webserver 8088:8088 -n demo1
+kubectl port-forward svc/superset-mcp 5008:5008 -n demo1
+
+# 4. Nettoyer (sans supprimer les PVC)
+./scripts/undeploy.sh demo1
+```
+
+### Déploiement Helm (alternatif)
+
+```bash
+# Via chart Helm officiel avec overrides personnalisés
+helm install superset bitnami/superset \
+  -f k8s/superset-helm-values.yaml \
+  -n superset \
+  --create-namespace
+```
+
+### Docker Compose (local/dev)
+
+```bash
+# Variante simple sans K8s
+docker-compose up -d
+```
+
+### Fix important
+
+L'image officielle `apache/superset:6.1.0` a un bug connu :
+le dashboard affiche une chargement infini au clic. La correction
+est incluse automatiquement via `lifecycle.postStart` dans les
+manifests K8s, mais pour un build local :
+
+```bash
+docker build -f k8s/Dockerfile.superset-fix -t superset:6.1.0-fix .
 ```
 
 ## Conventions

@@ -79,6 +79,18 @@ spec:
             limits:
               cpu: "1"
               memory: 1Gi
+          # postStart: fix symlink /app/static → /app/superset/static
+          # (workaround for: "dashboard click → infinite load" bug)
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    if [ ! -L /app/static ] && [ -d /app/superset/static ]; then
+                      ln -sf /app/superset/static /app/static
+                    fi
           readinessProbe:
             httpGet:
               path: /health

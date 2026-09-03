@@ -1,0 +1,78 @@
+# ─────────────────────────────────────────────────────────────────
+# Helm values overrides for Apache Superset 6.1.0 on demo1
+# Usage: helm install superset bitnami/superset -f superset-helm-values.yaml -n demo1
+# ─────────────────────────────────────────────────────────────────
+
+image:
+  registry: docker.io
+  repository: apache/superset
+  tag: 6.1.0
+  pullPolicy: IfNotPresent
+
+# ── PostgreSQL (internal bitnami chart) ──────────────────────────
+postgresql:
+  enabled: true
+  auth:
+    database: superset
+    username: superset
+    password: superset-secure-password
+
+# ── Redis (internal bitnami chart) ───────────────────────────────
+redis:
+  enabled: true
+  auth:
+    password: redis-secure-password
+
+# ── Superset Config ──────────────────────────────────────────────
+supersetConfig:
+  secretKey: superset-secure-secret-key
+  database:
+    host: superset-postgresql
+    port: 5432
+    user: superset
+    password: superset-secure-password
+    name: superset
+
+# ── Ingress ──────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  ingressClassName: public
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - name: superset.demo1.ailab.infocepo.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: superset-tls
+      hosts:
+        - superset.demo1.ailab.infocepo.com
+
+# ── Resources ────────────────────────────────────────────────────
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+# ── Workers ──────────────────────────────────────────────────────
+celeryWorkers:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+# ── MCP Server ──────────────────────────────────────────────────
+mcp:
+  enabled: true
+  auth:
+    enabled: false
+    devUsername: admin
