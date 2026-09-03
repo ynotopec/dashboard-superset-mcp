@@ -101,34 +101,6 @@ kubectl port-forward svc/superset-mcp 5008:5008 -n demo1
 ./scripts/undeploy.sh demo1
 ```
 
-### Déploiement Helm (alternatif)
-
-```bash
-# Via chart Helm officiel avec overrides personnalisés
-helm install superset bitnami/superset \
-  -f k8s/superset-helm-values.yaml \
-  -n superset \
-  --create-namespace
-```
-
-### Docker Compose (local/dev)
-
-```bash
-# Variante simple sans K8s
-docker-compose up -d
-```
-
-### Fix important
-
-L'image officielle `apache/superset:6.1.0` a un bug connu :
-le dashboard affiche une chargement infini au clic. La correction
-est incluse automatiquement via `lifecycle.postStart` dans les
-manifests K8s, mais pour un build local :
-
-```bash
-docker build -f k8s/Dockerfile.superset-fix -t superset:6.1.0-fix .
-```
-
 ## Conventions
 
 - Branches: `<type>/<kebab-description>#<ticket>`
