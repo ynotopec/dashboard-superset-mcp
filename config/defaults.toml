@@ -1,0 +1,28 @@
+# Defaults configuration
+# Override with environment variables or custom config files
+
+[project]
+name = "my-project"
+description = "Project description goes here"
+author = ""
+email = ""
+
+[build]
+language = "auto"  # auto, python, node, go, rust, none
+force_recreate = false
+
+[git]
+default_branch = "main"
+conventional_commits = true
+tag_format = "v{version}"
+
+[versioning]
+format = "semver"  # semver, date, none
+update_changelog = true
+update_readme = false
+
+[validate]
+check_git_init = true
+check_files_exist = true
+check_version_file = true
+check_readme_exists = true
