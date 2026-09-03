@@ -1,0 +1,4 @@
+FROM amancevice/superset:6.1.0
+USER root
+RUN pip install --no-cache-dir fastmcp
+USER superset

@@ -1,0 +1,307 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: __NAMESPACE__
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: superset-env
+  namespace: __NAMESPACE__
+  labels:
+    app: superset
+type: Opaque
+stringData:
+  SUPERSET_SECRET_KEY: "__SUPERSET_SECRET_KEY__"
+  DATABASE_URL: "postgresql://superset:__SUPERSET_PASSWORD__@superset-postgresql:5432/superset"
+  SUPERSET_ADMIN_PASSWORD: "__SUPERSET_ADMIN_PASSWORD__"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: superset-postgresql
+  namespace: __NAMESPACE__
+  labels:
+    app: superset-postgresql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: superset-postgresql
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: superset-postgresql
+    spec:
+      containers:
+        - name: postgresql
+          image: docker.io/bitnamilegacy/postgresql:14.17.0-debian-12-r3
+          env:
+            - name: POSTGRES_DB
+              value: superset
+            - name: POSTGRES_USER
+              value: superset
+            - name: POSTGRES_PASSWORD
+              value: __SUPERSET_PASSWORD__
+          ports:
+            - containerPort: 5432
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: superset-postgresql
+  namespace: __NAMESPACE__
+  labels:
+    app: superset-postgresql
+spec:
+  selector:
+    app: superset-postgresql
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: superset-redis
+  namespace: __NAMESPACE__
+  labels:
+    app: superset-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: superset-redis
+  template:
+    metadata:
+      labels:
+        app: superset-redis
+    spec:
+      containers:
+        - name: redis
+          image: docker.io/redis:7.0-alpine
+          command: ["redis-server", "--appendonly", "no"]
+          ports:
+            - containerPort: 6379
+          resources:
+            limits:
+              cpu: 250m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: superset-redis
+  namespace: __NAMESPACE__
+  labels:
+    app: superset-redis
+spec:
+  selector:
+    app: superset-redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: superset
+  namespace: __NAMESPACE__
+  labels:
+    app: superset
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: superset
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: superset
+    spec:
+      containers:
+        - name: superset-webserver
+          image: __IMAGE__
+          command:
+            - sh
+            - -c
+            - |
+              echo "Installing MCP dependencies..."
+              pip install --quiet --disable-pip-version-check fastmcp 2>/dev/null
+              echo "Starting gunicorn with sync workers..."
+              exec gunicorn "superset.app:create_app()" \
+                --workers 2 \
+                --bind 0.0.0.0:8088 \
+                --timeout 120 \
+                --worker-class sync \
+                --access-logfile - \
+                --error-logfile -
+          env:
+            - name: SUPERSET_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: superset-env
+                  key: SUPERSET_SECRET_KEY
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: superset-env
+                  key: DATABASE_URL
+            - name: REDIS_HOST
+              value: "superset-redis"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: MCP_DEV_USERNAME
+              value: "__SUPERSET_ADMIN_USER__"
+            - name: MCP_AUTH_ENABLED
+              value: "true"
+          ports:
+            - containerPort: 8088
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    if [ ! -L /app/static ] && [ -d /app/superset/static ]; then
+                      ln -sf /app/superset/static /app/static
+                    fi
+          resources:
+            limits:
+              cpu: 500m
+              memory: 1Gi
+            requests:
+              cpu: 200m
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8088
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8088
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8088
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: superset-svc
+  namespace: __NAMESPACE__
+  labels:
+    app: superset
+spec:
+  selector:
+    app: superset
+  ports:
+    - port: 8088
+      targetPort: 8088
+      name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: superset-ingress
+  namespace: __NAMESPACE__
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: public
+  tls:
+    - hosts:
+        - __SUPERSET_HOST__
+      secretName: superset-tls
+  rules:
+    - host: __SUPERSET_HOST__
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: superset-svc
+                port:
+                  number: 8088
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: superset-init
+  namespace: __NAMESPACE__
+  labels:
+    app: superset-init
+spec:
+  template:
+    metadata:
+      labels:
+        app: superset-init
+    spec:
+      containers:
+        - name: superset-init
+          image: __IMAGE__
+          env:
+            - name: SUPERSET_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: superset-env
+                  key: SUPERSET_SECRET_KEY
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: superset-env
+                  key: DATABASE_URL
+            - name: SUPERSET_ADMIN_USER
+              value: "__SUPERSET_ADMIN_USER__"
+            - name: SUPERSET_ADMIN_PASSWORD
+              value: "__SUPERSET_ADMIN_PASSWORD__"
+          command:
+            - sh
+            - -c
+            - |
+              echo "Running database migrations..."
+              superset db upgrade
+              echo "Creating admin user..."
+              superset fab create-admin \
+                --username __SUPERSET_ADMIN_USER__ \
+                --firstname Admin \
+                --lastname User \
+                --email admin@infocepo.com \
+                --password __SUPERSET_ADMIN_PASSWORD__ \
+                --non-interactive || true
+              echo "Initializing Superset..."
+              superset init
+              echo "Initialization complete!"
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+      restartPolicy: Never
